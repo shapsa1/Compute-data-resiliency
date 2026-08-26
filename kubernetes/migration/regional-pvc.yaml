@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pets-db-data-pets-db-0  # Must match the PVC name template of your StatefulSet
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: regional-pd
+  volumeName: pets-db-regional-pv  # Binds directly to the static regional PV
+  resources:
+    requests:
+      storage: 10Gi

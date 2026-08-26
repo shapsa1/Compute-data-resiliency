@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pets-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pets-frontend
+  template:
+    metadata:
+      labels:
+        app: pets-frontend
+    spec:
+      containers:
+      - name: nginx-app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+          name: http
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: code-volume
+          mountPath: /usr/share/nginx/html/index.html
+          subPath: index.html
+        - name: code-volume
+          mountPath: /usr/share/nginx/html/app.js
+          subPath: app.js
+      volumes:
+      - name: config-volume
+        configMap:
+          name: pets-frontend-code
+          items:
+          - key: nginx.conf
+            path: nginx.conf
+      - name: code-volume
+        configMap:
+          name: pets-frontend-code
+          items:
+          - key: index.html
+            path: index.html
+          - key: app.js
+            path: app.js
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pets-frontend-service
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: pets-frontend
+  type: LoadBalancer

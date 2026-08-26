@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pets-db-secret
+type: Opaque
+stringData:
+  postgres-password: "petssecuritypass"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pets-db-service
+spec:
+  ports:
+  - port: 5432
+    targetPort: 5432
+  selector:
+    app: pets-db
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pets-db
+spec:
+  serviceName: pets-db-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pets-db
+  template:
+    metadata:
+      labels:
+        app: pets-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_DB
+          value: pets_db
+        - name: POSTGRES_USER
+          value: pets_user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pets-db-secret
+              key: postgres-password
+        ports:
+        - containerPort: 5432
+          name: dbport
+        volumeMounts:
+        - name: pets-db-data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: pets-db-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "regional-pd"
+      resources:
+        requests:
+          storage: 10Gi

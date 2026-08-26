@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pets-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pets-backend
+  template:
+    metadata:
+      labels:
+        app: pets-backend
+    spec:
+      containers:
+      - name: python-app
+        image: python:3.11-alpine
+        command: [ "sh", "-c", "pip install psycopg2-binary && python /app/main.py" ]
+        env:
+        - name: DB_HOST
+          value: "pets-db-service"
+        - name: DB_NAME
+          value: "pets_db"
+        - name: DB_USER
+          value: "pets_user"
+        - name: DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pets-db-secret
+              key: postgres-password
+        ports:
+        - containerPort: 8000
+          name: apiport
+        volumeMounts:
+        - name: code-volume
+          mountPath: /app
+      volumes:
+      - name: code-volume
+        configMap:
+          name: pets-backend-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pets-backend-service
+spec:
+  ports:
+  - port: 8000
+    targetPort: 8000
+  selector:
+    app: pets-backend
+  type: ClusterIP

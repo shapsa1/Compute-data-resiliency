@@ -1,0 +1,426 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pets-backend-code
+data:
+  main.py: |
+    import http.server
+    import socketserver
+    import json
+    import psycopg2
+    import os
+    import time
+
+    DB_HOST = os.environ.get("DB_HOST", "pets-db-service")
+    DB_NAME = os.environ.get("DB_NAME", "pets_db")
+    DB_USER = os.environ.get("DB_USER", "pets_user")
+    DB_PASS = os.environ.get("DB_PASS", "petssecuritypass")
+
+    def init_db():
+        print("Waiting for database to be ready...")
+        for i in range(30):
+            try:
+                conn = psycopg2.connect(
+                    host=DB_HOST,
+                    database=DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASS,
+                    connect_timeout=3
+                )
+                cur = conn.cursor()
+                
+                # Create products table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS products (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL,
+                        category VARCHAR(50) NOT NULL,
+                        price NUMERIC(10,2) NOT NULL,
+                        image_url VARCHAR(255)
+                    );
+                """)
+                
+                # Check if empty, and seed database
+                cur.execute("SELECT COUNT(*) FROM products;")
+                count = cur.fetchone()[0]
+                if count == 0:
+                    print("Seeding database with pet food & toys...")
+                    items = [
+                        ("Organic Salmon Kibble for Cats", "food", 24.99, "https://images.unsplash.com/photo-1589924691106-07a2c35b550a?w=150"),
+                        ("Gourmet Beef Stew for Dogs", "food", 18.50, "https://images.unsplash.com/photo-1589924691106-07a2c35b550a?w=150"),
+                        ("Indestructible Rubber Dog Bone", "toys", 9.99, "https://images.unsplash.com/photo-1576201836106-db1758fd1c97?w=150"),
+                        ("Interactive Feather Cat Wand", "toys", 6.50, "https://images.unsplash.com/photo-1576201836106-db1758fd1c97?w=150"),
+                        ("Crunchy Catnip Treats", "food", 4.99, "https://images.unsplash.com/photo-1589924691106-07a2c35b550a?w=150"),
+                        ("Plush Squeaky Duck Toy", "toys", 7.99, "https://images.unsplash.com/photo-1576201836106-db1758fd1c97?w=150")
+                    ]
+                    for item in items:
+                        cur.execute(
+                            "INSERT INTO products (name, category, price, image_url) VALUES (%s, %s, %s, %s);",
+                            item
+                        )
+                
+                conn.commit()
+                cur.close()
+                conn.close()
+                print("Database initialized successfully.")
+                return True
+            except Exception as e:
+                print(f"Database connection attempt {i+1} failed: {e}")
+                time.sleep(5)
+        print("Failed to initialize database after multiple attempts.")
+        return False
+
+    class PetsAPIHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/api/products":
+                try:
+                    conn = psycopg2.connect(
+                        host=DB_HOST,
+                        database=DB_NAME,
+                        user=DB_USER,
+                        password=DB_PASS
+                    )
+                    cur = conn.cursor()
+                    cur.execute("SELECT id, name, category, price, image_url FROM products ORDER BY id ASC;")
+                    rows = cur.fetchall()
+                    products = []
+                    for row in rows:
+                        products.append({
+                            "id": row[0],
+                            "name": row[1],
+                            "category": row[2],
+                            "price": float(row[3]),
+                            "image_url": row[4]
+                        })
+                    cur.close()
+                    conn.close()
+                    
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(products).encode("utf-8"))
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                    
+            elif self.path == "/api/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "healthy"}).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"Not Found")
+
+    if __name__ == "__main__":
+        init_db()
+        PORT = 8000
+        print(f"Starting server on port {PORT}...")
+        with socketserver.TCPServer(("", PORT), PetsAPIHandler) as httpd:
+            httpd.serve_forever()
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pets-frontend-code
+data:
+  nginx.conf: |
+    events { worker_connections 1024; }
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        sendfile on;
+        keepalive_timeout 65;
+
+        server {
+            listen 80;
+            server_name localhost;
+
+            location / {
+                root /usr/share/nginx/html;
+                index index.html;
+                try_files $uri $uri/ =404;
+            }
+
+            location /api/ {
+                proxy_pass http://pets-backend-service:8000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+        }
+    }
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fluffy & Friends - Pets Food & Toys</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-amber-50/30 text-gray-800 min-h-screen flex flex-col font-sans">
+        <!-- Header -->
+        <header class="bg-teal-600 text-white shadow-md sticky top-0 z-50">
+            <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <i class="fa-solid fa-paw text-3xl text-amber-300"></i>
+                    <span class="text-2xl font-bold tracking-wide">Fluffy & Friends</span>
+                </div>
+                <div class="text-sm bg-teal-700 px-4 py-1.5 rounded-full border border-teal-500 flex items-center space-x-2">
+                    <span class="inline-block w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse"></span>
+                    <span>Internal Network Only</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="container mx-auto px-4 py-8 flex-1 grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Left Sidebar / Category Filter -->
+            <div class="lg:col-span-1">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-24">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">Shop Categories</h2>
+                    <div class="space-y-2" id="category-filters">
+                        <button onclick="filterCategory('all')" id="btn-all" class="w-full text-left px-4 py-2.5 rounded-xl font-medium transition duration-200 bg-teal-50 text-teal-700">
+                            <i class="fa-solid fa-border-all mr-2.5"></i> All Products
+                        </button>
+                        <button onclick="filterCategory('food')" id="btn-food" class="w-full text-left px-4 py-2.5 rounded-xl font-medium transition duration-200 text-gray-600 hover:bg-gray-50">
+                            <i class="fa-solid fa-bowl-food mr-2.5"></i> Pet Food
+                        </button>
+                        <button onclick="filterCategory('toys')" id="btn-toys" class="w-full text-left px-4 py-2.5 rounded-xl font-medium transition duration-200 text-gray-600 hover:bg-gray-50">
+                            <i class="fa-solid fa-bone mr-2.5"></i> Pet Toys
+                        </button>
+                    </div>
+                    
+                    <div class="mt-8 pt-6 border-t border-gray-100">
+                        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Stateful Backend</h3>
+                        <div class="flex items-center space-x-2 text-sm text-gray-600">
+                            <i class="fa-solid fa-database text-teal-600"></i>
+                            <span>PostgreSQL (Zonal PV)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Central Product Grid -->
+            <div class="lg:col-span-2">
+                <div id="loading" class="flex flex-col items-center justify-center py-20">
+                    <i class="fa-solid fa-circle-notch text-4xl text-teal-600 animate-spin mb-4"></i>
+                    <p class="text-gray-500 font-medium">Fetching pet essentials from Database...</p>
+                </div>
+                
+                <div id="error-alert" class="hidden bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6">
+                    <i class="fa-solid fa-circle-exclamation mr-2"></i> Failed to load products. Ensure the backend and DB pods are active.
+                </div>
+
+                <div id="product-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+                    <!-- Products dynamically rendered here -->
+                </div>
+            </div>
+
+            <!-- Right Sidebar / Shopping Cart -->
+            <div class="lg:col-span-1">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-24 flex flex-col max-h-[calc(100vh-120px)]">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4 flex items-center justify-between">
+                        <span>Your Cart</span>
+                        <span id="cart-count-badge" class="bg-amber-400 text-amber-950 text-xs px-2.5 py-1 rounded-full font-bold">0</span>
+                    </h2>
+                    
+                    <!-- Cart Items List -->
+                    <div class="flex-1 overflow-y-auto space-y-4 mb-4" id="cart-items">
+                        <p class="text-gray-400 text-center py-8 text-sm">Your cart is empty.</p>
+                    </div>
+
+                    <!-- Cart Total & Checkout -->
+                    <div class="border-t border-gray-100 pt-4">
+                        <div class="flex justify-between text-base font-bold text-gray-900 mb-4">
+                            <span>Total</span>
+                            <span id="cart-total">$0.00</span>
+                        </div>
+                        <button onclick="checkout()" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3 rounded-xl shadow-md transition duration-200">
+                            Checkout Order
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="bg-gray-100 border-t border-gray-200 py-6 mt-12 text-center text-sm text-gray-500">
+            <p>© 2026 Fluffy & Friends Platform. Powered by GKE Private Nodes & Zonal Storage.</p>
+        </footer>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="fixed bottom-6 right-6 bg-teal-900 text-white px-5 py-3.5 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-24 opacity-0 flex items-center space-x-3 z-50">
+            <i class="fa-solid fa-circle-check text-green-400"></i>
+            <span id="toast-message" class="text-sm font-medium">Item added to cart!</span>
+        </div>
+
+        <script src="app.js"></script>
+    </body>
+    </html>
+  app.js: |
+    let productsData = [];
+    let cart = {};
+
+    document.addEventListener("DOMContentLoaded", () => {
+        fetchProducts();
+    });
+
+    function fetchProducts() {
+        fetch('/api/products')
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                return res.json();
+            })
+            .then(data => {
+                productsData = data;
+                renderProducts(productsData);
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('product-grid').classList.remove('hidden');
+            })
+            .catch(err => {
+                console.error("Fetch failed:", err);
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('error-alert').classList.remove('hidden');
+            });
+    }
+
+    function renderProducts(products) {
+        const grid = document.getElementById('product-grid');
+        grid.innerHTML = '';
+        
+        products.forEach(p => {
+            const card = document.createElement('div');
+            card.className = 'bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition duration-200 flex flex-col';
+            card.innerHTML = `
+                <div class="h-40 bg-teal-50 flex items-center justify-center p-4 relative">
+                    <span class="absolute top-3 left-3 text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${p.category === 'food' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">${p.category}</span>
+                    <i class="fa-solid ${p.category === 'food' ? 'fa-bowl-food' : 'fa-bone'} text-5xl text-teal-500/70"></i>
+                </div>
+                <div class="p-5 flex-1 flex flex-col justify-between">
+                    <div>
+                        <h3 class="font-bold text-gray-900 text-base mb-1.5 leading-tight">${p.name}</h3>
+                        <p class="text-teal-600 font-bold text-lg mb-4">$${p.price.toFixed(2)}</p>
+                    </div>
+                    <button onclick="addToCart(${p.id})" class="w-full bg-teal-50 hover:bg-teal-100 text-teal-700 font-semibold py-2 rounded-xl transition duration-200 flex items-center justify-center space-x-1">
+                        <i class="fa-solid fa-plus text-xs"></i> <span>Add to Cart</span>
+                    </button>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    function filterCategory(cat) {
+        // Toggle Active Buttons
+        const btns = ['all', 'food', 'toys'];
+        btns.forEach(b => {
+            const btn = document.getElementById('btn-' + b);
+            if (b === cat) {
+                btn.className = 'w-full text-left px-4 py-2.5 rounded-xl font-medium transition duration-200 bg-teal-50 text-teal-700';
+            } else {
+                btn.className = 'w-full text-left px-4 py-2.5 rounded-xl font-medium transition duration-200 text-gray-600 hover:bg-gray-50';
+            }
+        });
+
+        if (cat === 'all') {
+            renderProducts(productsData);
+        } else {
+            renderProducts(productsData.filter(p => p.category === cat));
+        }
+    }
+
+    function addToCart(id) {
+        const product = productsData.find(p => p.id === id);
+        if (!product) return;
+        
+        if (cart[id]) {
+            cart[id].qty += 1;
+        } else {
+            cart[id] = { ...product, qty: 1 };
+        }
+        
+        updateCartUI();
+        showToast(`Added ${product.name} to cart!`);
+    }
+
+    function updateCartUI() {
+        const container = document.getElementById('cart-items');
+        const badge = document.getElementById('cart-count-badge');
+        const totalEl = document.getElementById('cart-total');
+        
+        let count = 0;
+        let total = 0;
+        container.innerHTML = '';
+        
+        const items = Object.values(cart);
+        if (items.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-center py-8 text-sm">Your cart is empty.</p>';
+            badge.innerText = '0';
+            totalEl.innerText = '$0.00';
+            return;
+        }
+        
+        items.forEach(item => {
+            count += item.qty;
+            total += item.price * item.qty;
+            
+            const div = document.createElement('div');
+            div.className = 'flex items-center justify-between border-b border-gray-50 pb-3';
+            div.innerHTML = `
+                <div class="flex-1 pr-2">
+                    <h4 class="text-sm font-semibold text-gray-800 leading-tight">${item.name}</h4>
+                    <p class="text-xs text-gray-400 mt-0.5">$${item.price.toFixed(2)} &times; ${item.qty}</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm font-bold text-gray-800">$${(item.price * item.qty).toFixed(2)}</span>
+                    <button onclick="removeFromCart(${item.id})" class="text-red-400 hover:text-red-600 p-1"><i class="fa-regular fa-trash-can"></i></button>
+                </div>
+            `;
+            container.appendChild(div);
+        });
+        
+        badge.innerText = count;
+        totalEl.innerText = `$${total.toFixed(2)}`;
+    }
+
+    function removeFromCart(id) {
+        if (cart[id]) {
+            delete cart[id];
+            updateCartUI();
+            showToast("Item removed from cart.");
+        }
+    }
+
+    function checkout() {
+        if (Object.keys(cart).length === 0) {
+            showToast("Your cart is empty!", true);
+            return;
+        }
+        
+        cart = {};
+        updateCartUI();
+        alert("🎉 Order placed successfully! (Stored and processed in GKE stateful cluster).");
+    }
+
+    function showToast(msg, isError = false) {
+        const toast = document.getElementById('toast');
+        const toastMsg = document.getElementById('toast-message');
+        
+        toastMsg.innerText = msg;
+        if (isError) {
+            toast.classList.replace('bg-teal-900', 'bg-red-900');
+        } else {
+            toast.classList.replace('bg-red-900', 'bg-teal-900');
+        }
+        
+        toast.classList.remove('translate-y-24', 'opacity-0');
+        
+        setTimeout(() => {
+            toast.classList.add('translate-y-24', 'opacity-0');
+        }, 3000);
+    }
