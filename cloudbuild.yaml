@@ -1,0 +1,12 @@
+# cloudbuild.yaml
+steps:
+  # Apply all Kubernetes manifests in the kubernetes/ folder directly to your GKE cluster
+  - name: 'gcr.io/cloud-builders/gke-deploy'
+    args:
+      - 'run'
+      - '--filename=kubernetes/'
+      - '--location=us-central1-c'
+      - '--cluster=pets-cluster'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
