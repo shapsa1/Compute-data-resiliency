@@ -194,6 +194,27 @@ cd Compute-data-resiliency
 3. Select and upload your `.yaml` files.
 
 ### Step 5: Authenticate kubectl and Apply Manifests
+
+> [!IMPORTANT]
+> **Connecting to a Private Cluster Master from Cloud Shell:**
+> Since this is a fully secure **private cluster** with `--enable-master-authorized-networks` enabled, the GKE control plane (master) will block connection attempts from unauthorized IP addresses, resulting in a **`dial tcp ...: i/o timeout`** or **`connection refused`** error when running `kubectl`.
+>
+> To resolve this, you must authorize your Cloud Shell instance's public IP address in GKE. Run the following commands **inside Cloud Shell** to dynamically find its IP and add it to the authorized networks:
+>
+> ```bash
+> # 1. Fetch Cloud Shell's current external IPv4 address
+> export CLOUD_SHELL_IP=$(curl -s ifconfig.me)
+> echo "Your Cloud Shell IP is: $CLOUD_SHELL_IP"
+>
+> # 2. Authorize Cloud Shell's IP to access the GKE control plane
+> gcloud container clusters update pets-cluster \
+>     --project=$PROJECT_ID \
+>     --zone=$ZONE \
+>     --enable-master-authorized-networks \
+>     --master-authorized-networks=${CLOUD_SHELL_IP}/32
+> ```
+> Once the update completes (takes ~1-2 minutes), proceed with the commands below.
+
 1. Authenticate your `kubectl` context to your private GKE cluster:
    ```bash
    gcloud container clusters get-credentials pets-cluster \
