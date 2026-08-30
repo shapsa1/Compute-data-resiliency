@@ -59,7 +59,7 @@ spec:
       name: pets-db-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "regional-pd"
+      storageClassName: "zonal-pd"
       resources:
         requests:
           storage: 10Gi
