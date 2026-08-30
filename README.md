@@ -362,8 +362,8 @@ Since `volumeClaimTemplates` are immutable, delete the controller definition and
 # 1. Delete the scaled-down controller definition
 kubectl delete statefulset pets-db
 
-# 2. Apply your updated postgres-db.yaml manifest
-kubectl apply -f postgres-db.yaml
+# 2. Apply your updated manifest (ensure kubernetes/03-postgres-db.yaml has storageClassName set to "regional-pd")
+kubectl apply -f kubernetes/03-postgres-db.yaml
 
 # 3. Scale the database back up to 1 replica
 kubectl scale statefulset pets-db --replicas=1
