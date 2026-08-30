@@ -166,6 +166,10 @@ gcloud beta container clusters create pets-cluster \
 ```
 
 ### Step 4: Import the Application Manifests to Cloud Shell
+
+> [!NOTE]
+> **Skipping Step 4:** If you already cloned this repository during the **Prerequisites & Setup** phase, you already have the files in your Cloud Shell terminal! You can **completely skip** this step and proceed directly to **Step 5**.
+
 You can import the Kubernetes manifests in this repository into your Google Cloud Shell environment using any of the following methods:
 
 #### **Method A: Direct Git Clone (Recommended & Easiest)**
