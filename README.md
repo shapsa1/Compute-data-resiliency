@@ -106,10 +106,10 @@ Clone this repository to your local machine or directly inside your Google Cloud
 
 ```bash
 # Clone the repository
-git clone <YOUR_GIT_REPOSITORY_URL>
+git clone https://github.com/shapsa1/Compute-data-resiliency.git
 
 # Navigate into the project folder
-cd pets-platform-gke
+cd Compute-data-resiliency
 ```
 
 ---
@@ -171,8 +171,8 @@ You can import the Kubernetes manifests in this repository into your Google Clou
 #### **Method A: Direct Git Clone (Recommended & Easiest)**
 If your repository is hosted on Git (e.g., GitHub), simply run the clone command directly in your Cloud Shell terminal (refer to the **Clone the Repository** step in the Prerequisites section above):
 ```bash
-git clone <YOUR_GIT_REPOSITORY_URL>
-cd pets-platform-gke
+git clone https://github.com/shapsa1/Compute-data-resiliency.git
+cd Compute-data-resiliency
 ```
 
 #### **Method B: Drag & Drop / File Upload (Using the Browser UI)**
