@@ -67,21 +67,141 @@ graph TD
 
 ---
 
+## Prerequisites & Setup
+
+Before deploying the 3-tier private platform, ensure your Google Cloud environment is fully configured.
+
+### 1. Required GCP APIs
+Enable the following APIs in your Google Cloud Project to support GKE cluster creation, networking, and volume provisioning:
+
+```bash
+# Enable required Google Cloud services
+gcloud services enable \
+    container.googleapis.com \
+    compute.googleapis.com \
+    iam.googleapis.com
+```
+
+### 2. Required Permissions
+Ensure your IAM user or service account has the following roles assigned in the project:
+*   **Kubernetes Engine Admin** (`roles/container.admin`): To create and manage the GKE cluster.
+*   **Compute Admin** (`roles/compute.admin`): To configure the VPC network, subnets, Cloud Router, and Cloud NAT.
+*   **Project Editor/Owner**: To enable the required Google Cloud APIs.
+
+### 3. Environment Variables
+Define and export the following environment variables in your terminal to streamline deployment commands. Replace `<YOUR_PROJECT_ID>` with your active Google Cloud project ID:
+
+```bash
+# Export configuration variables
+export PROJECT_ID="<YOUR_PROJECT_ID>"
+export REGION="us-central1"
+export ZONE="us-central1-c"
+
+# Set your active gcloud project
+gcloud config set project $PROJECT_ID
+```
+
+### 4. Clone the Repository
+Clone this repository to your local machine or directly inside your Google Cloud Shell:
+
+```bash
+# Clone the repository
+git clone <YOUR_GIT_REPOSITORY_URL>
+
+# Navigate into the project folder
+cd pets-platform-gke
+```
+
+---
+
 ## Part 1: Deployment of the 3-Tier Private Application
 
-### Step 1: Clone and Configure Environment
-Authenticate your `kubectl` context to your private GKE cluster:
+### Step 1: Set Up the Private VPC Network & Subnet
+Create a custom VPC network and subnet with secondary IP ranges dedicated for Pods and Services:
 ```bash
-gcloud container clusters get-credentials pets-cluster --zone us-central1-c
+# Create custom VPC
+gcloud compute networks create gke-vpc --subnet-mode=custom
+
+# Create subnet with Pod and Service ranges using environment variables
+gcloud compute networks subnets create gke-subnet \
+    --network=gke-vpc \
+    --region=$REGION \
+    --range=10.0.0.0/22 \
+    --enable-private-ip-google-access \
+    --secondary-range=gke-pods=10.40.0.0/14,gke-services=10.0.16.0/20
 ```
 
-### Step 2: Apply the Kubernetes Manifests
-Deploy the platform resources in sequential order:
+### Step 2: Set Up Secure Egress (Cloud NAT)
+Since our GKE nodes will have private IPs only, they need a secure NAT Gateway to access external container registries and dependency mirrors (e.g., Alpine packages, Python pip libraries):
 ```bash
-kubectl apply -f kubernetes/
+# Create a Cloud Router
+gcloud compute routers create gke-router \
+    --network=gke-vpc \
+    --region=$REGION
+
+# Attach a NAT Gateway to the router
+gcloud compute routers nats create gke-nat \
+    --router=gke-router \
+    --region=$REGION \
+    --auto-allocate-nat-external-ips \
+    --nat-all-subnet-ip-ranges
 ```
 
-### Step 3: Verify the Private Deployment
+### Step 3: Create the GKE Private Cluster
+Launch a fully private Standard GKE cluster inside your custom subnet:
+```bash
+gcloud beta container clusters create pets-cluster \
+    --project=$PROJECT_ID \
+    --zone=$ZONE \
+    --network=gke-vpc \
+    --subnetwork=gke-subnet \
+    --cluster-secondary-range-name=gke-pods \
+    --services-secondary-range-name=gke-services \
+    --enable-private-nodes \
+    --master-ipv4-cidr=172.16.0.16/28 \
+    --enable-ip-alias \
+    --machine-type=e2-medium \
+    --num-nodes=3 \
+    --enable-master-authorized-networks
+```
+
+### Step 4: Import the Application Manifests to Cloud Shell
+You can import the Kubernetes manifests in this repository into your Google Cloud Shell environment using any of the following methods:
+
+#### **Method A: Direct Git Clone (Recommended & Easiest)**
+If your repository is hosted on Git (e.g., GitHub), simply run the clone command directly in your Cloud Shell terminal (refer to the **Clone the Repository** step in the Prerequisites section above):
+```bash
+git clone <YOUR_GIT_REPOSITORY_URL>
+cd pets-platform-gke
+```
+
+#### **Method B: Drag & Drop / File Upload (Using the Browser UI)**
+1. In the top-right corner of the Cloud Shell terminal window, click the **More (⋮)** menu icon.
+2. Click **Upload** > **Folder** (or **File**).
+3. Select the `kubernetes/` folder (or specific `.yaml` files) from your local computer and click **Upload**.
+4. To verify the files are successfully uploaded, run:
+   ```bash
+   ls -la kubernetes/
+   ```
+
+#### **Method C: Using Cloud Shell Editor (Built-in IDE)**
+1. Click the **Open Editor (✏️)** button on the top toolbar of Cloud Shell.
+2. In the file explorer sidebar on the left, right-click and choose **Upload Files...**.
+3. Select and upload your `.yaml` files.
+
+### Step 5: Authenticate kubectl and Apply Manifests
+1. Authenticate your `kubectl` context to your private GKE cluster:
+   ```bash
+   gcloud container clusters get-credentials pets-cluster \
+       --project=$PROJECT_ID \
+       --zone=$ZONE
+   ```
+2. Deploy the 3-Tier application resources in sequential order:
+   ```bash
+   kubectl apply -f kubernetes/
+   ```
+
+### Step 6: Verify the Private Deployment
 1. **Verify Pod Status**: Ensure all pods are in `Running` status:
    ```bash
    kubectl get pods
@@ -90,7 +210,7 @@ kubectl apply -f kubernetes/
    ```bash
    kubectl get service pets-frontend-service
    ```
-3. **Verify Zonal Storage Affinity**: Confirm the database PV is dynamically bound to a zonal disk in `us-central1-c`:
+3. **Verify Zonal Storage Affinity**: Confirm the database PV is dynamically bound to a zonal disk in `$ZONE`:
    ```bash
    kubectl describe pv
    ```
